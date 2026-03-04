@@ -1,5 +1,5 @@
 {
-  "name": "claude-strava",
+  "name": "mcp-strava",
   "version": "1.0.0",
   "type": "module",
   "main": "server.js",
