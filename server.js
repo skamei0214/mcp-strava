@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -8,28 +10,39 @@ import {
   upsertStravaUser, getStravaUser, updateStravaTokens,
   createAuthCode, consumeAuthCode,
   createAccessToken, getAthleteIdFromToken,
+  createPendingSetup, getPendingSetup, deletePendingSetup,
+  createPendingConfirmation, getPendingConfirmation, deletePendingConfirmation,
 } from './db.js';
 
-const BASE_URL  = process.env.BASE_URL;   // e.g. https://187-77-203-66.sslip.io
-const CLIENT_ID = process.env.STRAVA_CLIENT_ID;
-const CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
-const PORT = process.env.PORT || 3001;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const BASE_URL = process.env.BASE_URL;   // e.g. https://187-77-203-66.sslip.io
+const PORT     = process.env.PORT || 3001;
+
+// Strava app credentials — used only as a fallback for users who haven't
+// supplied their own. With Option A, each user supplies their own credentials.
+const APP_STRAVA_CLIENT_ID     = process.env.STRAVA_CLIENT_ID;
+const APP_STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
 
 // ── Strava API ────────────────────────────────────────────────────────────────
 
 async function refreshStravaTokenIfNeeded(user) {
   if (Math.floor(Date.now() / 1000) < user.expires_at - 60) return user.access_token;
+  // Use the user's own credentials if stored, otherwise fall back to app credentials
+  const clientId     = user.strava_client_id     || APP_STRAVA_CLIENT_ID;
+  const clientSecret = user.strava_client_secret || APP_STRAVA_CLIENT_SECRET;
   const res = await fetch('https://www.strava.com/api/v3/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: user.refresh_token,
       grant_type: 'refresh_token',
     }),
   });
   const data = await res.json();
+  if (!data.access_token) throw new Error('Token refresh failed: ' + JSON.stringify(data));
   updateStravaTokens(user.athlete_id, {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
@@ -123,7 +136,7 @@ function requireAuth(req, res, next) {
 
 function createMCPServer(athleteId) {
   const server = new Server(
-    { name: 'claude-strava', version: '1.0.0' },
+    { name: 'mcp-strava', version: '1.0.0' },
     { capabilities: { tools: {} } },
   );
 
@@ -158,6 +171,7 @@ function createMCPServer(athleteId) {
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static(join(__dirname, 'public')));
 
 // ── OAuth discovery ───────────────────────────────────────────────────────────
 
@@ -194,47 +208,115 @@ app.post('/register', (req, res) => {
   });
 });
 
-// ── Authorization endpoint ────────────────────────────────────────────────────
+// ── Authorization endpoint — GET (show form or fast-track returning users) ────
 
 app.get('/oauth/authorize', (req, res) => {
   const { client_id, redirect_uri, state } = req.query;
-  if (!client_id) return res.status(400).send('Missing client_id');
+  if (!client_id || !redirect_uri) return res.status(400).send('Missing client_id or redirect_uri');
 
-  // Store params in a short-lived query string on the Strava redirect
-  const stravaAuthUrl = new URL('https://www.strava.com/oauth/authorize');
-  stravaAuthUrl.searchParams.set('client_id', CLIENT_ID);
-  stravaAuthUrl.searchParams.set('redirect_uri', `${BASE_URL}/strava/callback`);
-  stravaAuthUrl.searchParams.set('response_type', 'code');
-  stravaAuthUrl.searchParams.set('approval_prompt', 'auto');
-  stravaAuthUrl.searchParams.set('scope', 'activity:read_all');
-  // Pass through MCP client params via state
-  stravaAuthUrl.searchParams.set('state', JSON.stringify({ client_id, redirect_uri, state }));
+  // Always show the credential form — never skip based on browser state.
+  // Each Claude account must authenticate independently with its own Strava credentials.
+  const baseHost = new URL(BASE_URL).hostname;
+  const esc = (s) => String(s ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Connect Strava to Claude</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        body { font-family: system-ui, sans-serif; max-width: 420px; margin: 80px auto; padding: 0 24px; text-align: center; }
-        h1 { font-size: 1.4rem; margin-bottom: 8px; }
-        p { color: #666; margin-bottom: 32px; }
-        a.btn {
-          display: inline-block; background: #FC4C02; color: white;
-          padding: 14px 28px; border-radius: 8px; text-decoration: none;
-          font-weight: 600; font-size: 1rem;
-        }
-        a.btn:hover { background: #e04400; }
-      </style>
-    </head>
-    <body>
-      <h1>Connect Strava to Claude</h1>
-      <p>Authorize Claude to read your Strava training data.</p>
-      <a class="btn" href="${stravaAuthUrl.toString()}">Connect with Strava</a>
-    </body>
-    </html>
-  `);
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect Strava to Claude</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #fafafa; color: #1a1a1a; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: white; border-radius: 16px; padding: 36px 32px; max-width: 500px; width: 100%; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }
+    .logo { font-size: 2rem; margin-bottom: 12px; }
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; }
+    .intro { color: #666; font-size: 0.9rem; line-height: 1.5; margin-bottom: 28px; }
+    .step { border: 1px solid #eee; border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+    .step-num { display: inline-block; background: #FC4C02; color: white; border-radius: 50%; width: 22px; height: 22px; text-align: center; font-size: 0.75rem; font-weight: 700; line-height: 22px; margin-right: 8px; }
+    .step h3 { display: inline; font-size: 0.95rem; color: #222; }
+    .step-body { margin-top: 10px; color: #555; font-size: 0.88rem; line-height: 1.6; }
+    .step-body a { color: #FC4C02; text-decoration: none; font-weight: 600; }
+    .copy-box { display: inline-block; background: #f4f4f4; border-radius: 6px; padding: 5px 10px; font-family: monospace; font-size: 0.85rem; margin-top: 6px; cursor: pointer; user-select: all; border: 1px solid #e0e0e0; }
+    .divider { border: none; border-top: 1px solid #eee; margin: 24px 0; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; color: #333; margin-bottom: 6px; }
+    input[type=text], input[type=password] { width: 100%; border: 1.5px solid #ddd; border-radius: 8px; padding: 11px 13px; font-size: 0.95rem; transition: border-color 0.15s; margin-bottom: 16px; }
+    input:focus { outline: none; border-color: #FC4C02; box-shadow: 0 0 0 3px rgba(252,76,2,0.1); }
+    button { width: 100%; background: #FC4C02; color: white; border: none; border-radius: 10px; padding: 14px; font-size: 1rem; font-weight: 700; cursor: pointer; letter-spacing: 0.01em; }
+    button:hover { background: #e04400; }
+    .hint { color: #888; font-size: 0.8rem; margin-top: 14px; text-align: center; }
+    .hint a { color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🏃</div>
+    <h1>Connect Strava to Claude</h1>
+    <p class="intro">This app uses <strong>your own Strava API credentials</strong>, so your data stays in your control. Setup takes about 2 minutes.</p>
+
+    <div class="step">
+      <span class="step-num">1</span><h3>Create a Strava API application</h3>
+      <div class="step-body">
+        Go to <a href="https://www.strava.com/settings/api" target="_blank">strava.com/settings/api</a> and create a new app (or use an existing one).<br><br>
+        Set <strong>Authorization Callback Domain</strong> to:<br>
+        <span class="copy-box">${esc(baseHost)}</span>
+      </div>
+    </div>
+
+    <div class="step">
+      <span class="step-num">2</span><h3>Paste your credentials below</h3>
+      <div class="step-body">Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> from your Strava app settings page.</div>
+    </div>
+
+    <hr class="divider">
+
+    <form method="POST" action="/oauth/authorize">
+      <input type="hidden" name="client_id"    value="${esc(client_id)}">
+      <input type="hidden" name="redirect_uri" value="${esc(redirect_uri)}">
+      <input type="hidden" name="state"        value="${esc(state)}">
+
+      <label for="sid">Strava Client ID</label>
+      <input type="text" id="sid" name="strava_client_id" placeholder="e.g. 12345" required autocomplete="off">
+
+      <label for="ssec">Strava Client Secret</label>
+      <input type="password" id="ssec" name="strava_client_secret" placeholder="Paste your client secret" required autocomplete="off">
+
+      <button type="submit">Connect with Strava &rarr;</button>
+    </form>
+
+    <p class="hint">Your credentials are stored securely and used only to fetch your activities. <a href="/privacy">Privacy Policy</a></p>
+  </div>
+</body>
+</html>`);
+});
+
+// ── Authorization endpoint — POST (process credential form) ──────────────────
+
+app.post('/oauth/authorize', (req, res) => {
+  const { client_id, redirect_uri, state, strava_client_id, strava_client_secret } = req.body;
+
+  if (!client_id || !redirect_uri) return res.status(400).send('Missing client_id or redirect_uri');
+  if (!strava_client_id || !strava_client_secret) return res.status(400).send('Missing Strava credentials');
+
+  // Store everything in pending_setups so the callback can retrieve it
+  const setupToken = createPendingSetup({
+    mcpClientId: client_id,
+    mcpRedirectUri: redirect_uri,
+    mcpState: state || null,
+    stravaClientId: strava_client_id.trim(),
+    stravaClientSecret: strava_client_secret.trim(),
+  });
+
+  // Redirect to Strava using the user's own app credentials
+  const stravaUrl = new URL('https://www.strava.com/oauth/authorize');
+  stravaUrl.searchParams.set('client_id',       strava_client_id.trim());
+  stravaUrl.searchParams.set('redirect_uri',    `${BASE_URL}/strava/callback`);
+  stravaUrl.searchParams.set('response_type',   'code');
+  stravaUrl.searchParams.set('approval_prompt', 'auto');
+  stravaUrl.searchParams.set('scope',           'activity:read_all');
+  stravaUrl.searchParams.set('state',           setupToken);   // our lookup key
+
+  res.redirect(stravaUrl.toString());
 });
 
 // ── Strava OAuth callback ─────────────────────────────────────────────────────
@@ -242,44 +324,126 @@ app.get('/oauth/authorize', (req, res) => {
 app.get('/strava/callback', async (req, res) => {
   const { code, state, error } = req.query;
   if (error) return res.status(400).send(`Strava authorization denied: ${error}`);
+  if (!code || !state) return res.status(400).send('Missing code or state');
 
-  let mcpState;
-  try { mcpState = JSON.parse(state); } catch { return res.status(400).send('Invalid state'); }
+  const setup = getPendingSetup(state);
+  if (!setup) return res.status(400).send('Setup session expired or invalid. Please start again.');
+  deletePendingSetup(state);
 
-  // Exchange Strava auth code for tokens
+  // Exchange Strava auth code using the user's own credentials
   const tokenRes = await fetch('https://www.strava.com/api/v3/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id:     setup.strava_client_id,
+      client_secret: setup.strava_client_secret,
       code,
       grant_type: 'authorization_code',
     }),
   });
   const tokenData = await tokenRes.json();
-  if (!tokenData.access_token) return res.status(500).send('Failed to get Strava token');
+  if (!tokenData.access_token) {
+    console.error('Strava token exchange failed:', tokenData);
+    return res.status(500).send(`Failed to connect Strava: ${tokenData.message || 'Unknown error'}. Check your Client ID and Secret are correct.`);
+  }
 
-  const athleteId = String(tokenData.athlete.id);
+  const athleteId   = String(tokenData.athlete.id);
+  const athleteName = [tokenData.athlete.firstname, tokenData.athlete.lastname].filter(Boolean).join(' ');
+  const athletePhoto = tokenData.athlete.profile_medium || tokenData.athlete.profile || null;
+
+  // Persist Strava tokens
   upsertStravaUser({
     athleteId,
-    accessToken: tokenData.access_token,
-    refreshToken: tokenData.refresh_token,
-    expiresAt: tokenData.expires_at,
-    scope: 'activity:read_all',
+    accessToken:         tokenData.access_token,
+    refreshToken:        tokenData.refresh_token,
+    expiresAt:           tokenData.expires_at,
+    scope:               'activity:read_all',
+    stravaClientId:      setup.strava_client_id,
+    stravaClientSecret:  setup.strava_client_secret,
   });
 
-  // Issue MCP auth code and redirect back to Claude
-  const authCode = createAuthCode({
-    clientId: mcpState.client_id,
+  // Create a short-lived confirmation record — the MCP auth code is NOT issued
+  // until the user sees their name and explicitly clicks "Yes, this is me".
+  const confirmToken = createPendingConfirmation({
+    mcpClientId:    setup.mcp_client_id,
+    mcpRedirectUri: setup.mcp_redirect_uri,
+    mcpState:       setup.mcp_state,
     athleteId,
-    redirectUri: mcpState.redirect_uri,
+    athleteName,
   });
 
-  const redirect = new URL(mcpState.redirect_uri);
-  redirect.searchParams.set('code', authCode);
-  if (mcpState.state) redirect.searchParams.set('state', mcpState.state);
-  res.redirect(redirect.toString());
+  const esc = (s) => String(s ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const photoHtml = athletePhoto
+    ? `<img src="${esc(athletePhoto)}" alt="Profile photo" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid #eee;">`
+    : `<div style="width:72px;height:72px;border-radius:50%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:2rem;">🏃</div>`;
+
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Confirm your Strava account</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #fafafa; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: white; border-radius: 16px; padding: 40px 32px; max-width: 420px; width: 100%; box-shadow: 0 2px 16px rgba(0,0,0,0.08); text-align: center; }
+    .check { font-size: 2.5rem; margin-bottom: 16px; }
+    h1 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+    .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 28px; }
+    .athlete { display: flex; flex-direction: column; align-items: center; gap: 12px; background: #f8f8f8; border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+    .athlete-name { font-size: 1.2rem; font-weight: 700; }
+    .athlete-id { color: #999; font-size: 0.8rem; }
+    .warning { background: #fff8f0; border: 1px solid #ffd0a0; border-radius: 8px; padding: 12px 16px; color: #b35c00; font-size: 0.85rem; margin-bottom: 24px; text-align: left; }
+    button { width: 100%; background: #FC4C02; color: white; border: none; border-radius: 10px; padding: 14px; font-size: 1rem; font-weight: 700; cursor: pointer; margin-bottom: 12px; }
+    button:hover { background: #e04400; }
+    .restart { display: block; color: #999; font-size: 0.85rem; text-decoration: none; }
+    .restart:hover { color: #666; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="check">✅</div>
+    <h1>Confirm your Strava account</h1>
+    <p class="subtitle">Strava authorized the following account. Is this you?</p>
+
+    <div class="athlete">
+      ${photoHtml}
+      <div class="athlete-name">${esc(athleteName) || 'Unknown Athlete'}</div>
+      <div class="athlete-id">Strava ID: ${esc(athleteId)}</div>
+    </div>
+
+    <div class="warning">
+      ⚠️ Only click confirm if this is <strong>your own</strong> Strava account. Confirming will connect this account to your Claude.
+    </div>
+
+    <form method="POST" action="/strava/confirm">
+      <input type="hidden" name="confirm_token" value="${esc(confirmToken)}">
+      <button type="submit">Yes, this is me — connect my Strava</button>
+    </form>
+    <a class="restart" href="/oauth/authorize?client_id=${esc(setup.mcp_client_id)}&redirect_uri=${encodeURIComponent(setup.mcp_redirect_uri)}&state=${esc(setup.mcp_state)}">Not you? Start over</a>
+  </div>
+</body>
+</html>`);
+});
+
+// ── Strava confirm (finalises connection after identity check) ────────────────
+
+app.post('/strava/confirm', (req, res) => {
+  const { confirm_token } = req.body;
+  const conf = getPendingConfirmation(confirm_token);
+  if (!conf) return res.status(400).send('Confirmation expired. Please close this window and try connecting again from Claude.');
+  deletePendingConfirmation(confirm_token);
+
+  const authCode = createAuthCode({
+    clientId:    conf.mcp_client_id,
+    athleteId:   conf.athlete_id,
+    redirectUri: conf.mcp_redirect_uri,
+  });
+
+  const redirectUrl = new URL(conf.mcp_redirect_uri);
+  redirectUrl.searchParams.set('code', authCode);
+  if (conf.mcp_state) redirectUrl.searchParams.set('state', conf.mcp_state);
+  res.redirect(redirectUrl.toString());
 });
 
 // ── Token endpoint ────────────────────────────────────────────────────────────
@@ -318,5 +482,5 @@ app.post('/mcp', requireAuth, async (req, res) => {
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.listen(PORT, 'localhost', () => {
-  console.log(`claude-strava MCP server listening on localhost:${PORT}`);
+  console.log(`mcp-strava listening on localhost:${PORT}`);
 });

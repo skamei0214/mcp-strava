@@ -7,8 +7,9 @@ VPS_USER="root"
 REMOTE_DIR="/opt/claude-strava"
 
 echo "→ Copying files to VPS..."
-ssh "$VPS_USER@$VPS_IP" "mkdir -p $REMOTE_DIR"
+ssh "$VPS_USER@$VPS_IP" "mkdir -p $REMOTE_DIR/public"
 scp server.js db.js package.json .env "$VPS_USER@$VPS_IP:$REMOTE_DIR/"
+scp public/index.html public/privacy.html "$VPS_USER@$VPS_IP:$REMOTE_DIR/public/"
 
 echo "→ Installing dependencies on VPS..."
 ssh "$VPS_USER@$VPS_IP" "cd $REMOTE_DIR && npm install --omit=dev"

@@ -8,49 +8,78 @@ const db = new Database(join(process.env.DATA_DIR || '.', 'claude-strava.db'));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS clients (
-    id          TEXT PRIMARY KEY,
-    secret      TEXT NOT NULL,
+    id            TEXT PRIMARY KEY,
+    secret        TEXT NOT NULL,
     redirect_uris TEXT NOT NULL,   -- JSON array
-    created_at  INTEGER NOT NULL
+    created_at    INTEGER NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS strava_users (
-    athlete_id    TEXT PRIMARY KEY,
-    access_token  TEXT NOT NULL,
-    refresh_token TEXT NOT NULL,
-    expires_at    INTEGER NOT NULL,
-    scope         TEXT,
-    created_at    INTEGER NOT NULL,
-    updated_at    INTEGER NOT NULL
+    athlete_id           TEXT PRIMARY KEY,
+    access_token         TEXT NOT NULL,
+    refresh_token        TEXT NOT NULL,
+    expires_at           INTEGER NOT NULL,
+    scope                TEXT,
+    strava_client_id     TEXT,
+    strava_client_secret TEXT,
+    created_at           INTEGER NOT NULL,
+    updated_at           INTEGER NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS auth_codes (
-    code        TEXT PRIMARY KEY,
-    client_id   TEXT NOT NULL,
-    athlete_id  TEXT NOT NULL,
+    code         TEXT PRIMARY KEY,
+    client_id    TEXT NOT NULL,
+    athlete_id   TEXT NOT NULL,
     redirect_uri TEXT NOT NULL,
-    expires_at  INTEGER NOT NULL,
-    created_at  INTEGER NOT NULL
+    expires_at   INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS access_tokens (
-    token       TEXT PRIMARY KEY,
-    client_id   TEXT NOT NULL,
-    athlete_id  TEXT NOT NULL,
-    created_at  INTEGER NOT NULL
+    token      TEXT PRIMARY KEY,
+    client_id  TEXT NOT NULL,
+    athlete_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS pending_setups (
+    token                TEXT PRIMARY KEY,
+    mcp_client_id        TEXT NOT NULL,
+    mcp_redirect_uri     TEXT NOT NULL,
+    mcp_state            TEXT,
+    strava_client_id     TEXT NOT NULL,
+    strava_client_secret TEXT NOT NULL,
+    expires_at           INTEGER NOT NULL,
+    created_at           INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS pending_confirmations (
+    token            TEXT PRIMARY KEY,
+    mcp_client_id    TEXT NOT NULL,
+    mcp_redirect_uri TEXT NOT NULL,
+    mcp_state        TEXT,
+    athlete_id       TEXT NOT NULL,
+    athlete_name     TEXT,
+    expires_at       INTEGER NOT NULL,
+    created_at       INTEGER NOT NULL
   );
 `);
+
+// Migrate existing rows (no-op on fresh DBs)
+for (const col of ['strava_client_id', 'strava_client_secret']) {
+  try { db.exec(`ALTER TABLE strava_users ADD COLUMN ${col} TEXT`); } catch { /* already exists */ }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const now = () => Math.floor(Date.now() / 1000);
-const token = (bytes = 32) => randomBytes(bytes).toString('hex');
+const tok = (bytes = 32) => randomBytes(bytes).toString('hex');
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 
 export function registerClient({ redirectUris }) {
-  const id = token(16);
-  const secret = token(32);
+  const id = tok(16);
+  const secret = tok(32);
   db.prepare(`
     INSERT INTO clients (id, secret, redirect_uris, created_at)
     VALUES (?, ?, ?, ?)
@@ -64,17 +93,20 @@ export function getClient(id) {
 
 // ── Strava users ──────────────────────────────────────────────────────────────
 
-export function upsertStravaUser({ athleteId, accessToken, refreshToken, expiresAt, scope }) {
+export function upsertStravaUser({ athleteId, accessToken, refreshToken, expiresAt, scope, stravaClientId, stravaClientSecret }) {
   db.prepare(`
-    INSERT INTO strava_users (athlete_id, access_token, refresh_token, expires_at, scope, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO strava_users (athlete_id, access_token, refresh_token, expires_at, scope, strava_client_id, strava_client_secret, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(athlete_id) DO UPDATE SET
-      access_token  = excluded.access_token,
-      refresh_token = excluded.refresh_token,
-      expires_at    = excluded.expires_at,
-      scope         = excluded.scope,
-      updated_at    = excluded.updated_at
-  `).run(athleteId, accessToken, refreshToken, expiresAt, scope, now(), now());
+      access_token         = excluded.access_token,
+      refresh_token        = excluded.refresh_token,
+      expires_at           = excluded.expires_at,
+      scope                = excluded.scope,
+      strava_client_id     = COALESCE(excluded.strava_client_id, strava_users.strava_client_id),
+      strava_client_secret = COALESCE(excluded.strava_client_secret, strava_users.strava_client_secret),
+      updated_at           = excluded.updated_at
+  `).run(athleteId, accessToken, refreshToken, expiresAt, scope,
+         stravaClientId || null, stravaClientSecret || null, now(), now());
 }
 
 export function getStravaUser(athleteId) {
@@ -88,14 +120,54 @@ export function updateStravaTokens(athleteId, { accessToken, refreshToken, expir
   `).run(accessToken, refreshToken, expiresAt, now(), athleteId);
 }
 
+// ── Pending setups ────────────────────────────────────────────────────────────
+
+export function createPendingSetup({ mcpClientId, mcpRedirectUri, mcpState, stravaClientId, stravaClientSecret }) {
+  const t = tok(24);
+  db.prepare(`
+    INSERT INTO pending_setups (token, mcp_client_id, mcp_redirect_uri, mcp_state, strava_client_id, strava_client_secret, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(t, mcpClientId, mcpRedirectUri, mcpState || null, stravaClientId, stravaClientSecret, now() + 600, now());
+  return t;
+}
+
+export function getPendingSetup(t) {
+  return db.prepare('SELECT * FROM pending_setups WHERE token = ? AND expires_at > ?').get(t, now());
+}
+
+export function deletePendingSetup(t) {
+  db.prepare('DELETE FROM pending_setups WHERE token = ?').run(t);
+}
+
+// ── Pending confirmations ─────────────────────────────────────────────────────
+// After Strava OAuth succeeds, the user must confirm their identity before
+// the MCP auth code is issued. This prevents accidentally linking wrong accounts.
+
+export function createPendingConfirmation({ mcpClientId, mcpRedirectUri, mcpState, athleteId, athleteName }) {
+  const t = tok(24);
+  db.prepare(`
+    INSERT INTO pending_confirmations (token, mcp_client_id, mcp_redirect_uri, mcp_state, athlete_id, athlete_name, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(t, mcpClientId, mcpRedirectUri, mcpState || null, athleteId, athleteName || null, now() + 300, now());
+  return t;
+}
+
+export function getPendingConfirmation(t) {
+  return db.prepare('SELECT * FROM pending_confirmations WHERE token = ? AND expires_at > ?').get(t, now());
+}
+
+export function deletePendingConfirmation(t) {
+  db.prepare('DELETE FROM pending_confirmations WHERE token = ?').run(t);
+}
+
 // ── Auth codes ────────────────────────────────────────────────────────────────
 
 export function createAuthCode({ clientId, athleteId, redirectUri }) {
-  const code = token(24);
+  const code = tok(24);
   db.prepare(`
     INSERT INTO auth_codes (code, client_id, athlete_id, redirect_uri, expires_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(code, clientId, athleteId, redirectUri, now() + 300, now()); // 5 min expiry
+  `).run(code, clientId, athleteId, redirectUri, now() + 300, now()); // 5 min
   return code;
 }
 
@@ -109,7 +181,7 @@ export function consumeAuthCode(code) {
 // ── Access tokens ─────────────────────────────────────────────────────────────
 
 export function createAccessToken({ clientId, athleteId }) {
-  const t = token(32);
+  const t = tok(32);
   db.prepare(`
     INSERT INTO access_tokens (token, client_id, athlete_id, created_at)
     VALUES (?, ?, ?, ?)

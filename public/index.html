@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Athlete Coach for Claude</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #f0f0f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; }
+    .logo { font-size: 2.5rem; margin-bottom: 16px; }
+    h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 12px; text-align: center; }
+    .subtitle { color: #aaa; font-size: 1rem; max-width: 440px; text-align: center; line-height: 1.6; margin-bottom: 40px; }
+    .features { list-style: none; margin-bottom: 48px; display: flex; flex-direction: column; gap: 12px; }
+    .features li { display: flex; align-items: center; gap: 10px; color: #ccc; font-size: 0.95rem; }
+    .features li::before { content: "✓"; color: #FC4C02; font-weight: 700; }
+    .btn {
+      display: inline-block; background: #FC4C02; color: white;
+      padding: 14px 32px; border-radius: 8px; text-decoration: none;
+      font-weight: 600; font-size: 1rem; margin-bottom: 16px;
+    }
+    .btn:hover { background: #e04400; }
+    .privacy { color: #555; font-size: 0.8rem; }
+    .privacy a { color: #777; }
+    .powered { margin-top: 60px; color: #444; font-size: 0.8rem; }
+    .powered a { color: #FC4C02; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="logo">🏃</div>
+  <h1>Athlete Coach for Claude</h1>
+  <p class="subtitle">Connect your Strava training data to Claude and ChatGPT. Get instant coaching insights from your runs, rides, and workouts.</p>
+
+  <ul class="features">
+    <li>Live activity data pulled fresh from Strava</li>
+    <li>Works with Claude.ai, Claude mobile, and ChatGPT</li>
+    <li>Weekly mileage, pace trends, heart rate analysis</li>
+    <li>Ask follow-up questions about your training</li>
+  </ul>
+
+  <a class="btn" href="/oauth/authorize">Connect with Strava</a>
+  <p class="privacy">By connecting, you agree to our <a href="/privacy">Privacy Policy</a></p>
+
+  <p class="powered">Powered by <a href="https://www.strava.com">Strava</a></p>
+</body>
+</html>
