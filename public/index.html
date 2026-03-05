@@ -167,8 +167,8 @@
       color: #7a3800;
     }
 
-    /* ── Prompts ── */
-    .prompts-section {
+    /* ── Conversations ── */
+    .convos-section {
       background: var(--surface);
       padding: 64px 24px;
       border-top: 1px solid var(--border);
@@ -189,21 +189,18 @@
       letter-spacing: -0.02em;
       margin-bottom: 32px;
     }
-    .prompts-grid {
+    .convos-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
     }
-    .prompt-chip {
+    @media (max-width: 640px) {
+      .convos-grid { grid-template-columns: 1fr; }
+    }
+    .convos-grid .chat {
       background: white;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px 16px;
-      font-size: 0.88rem;
-      line-height: 1.4;
+      font-size: 0.85rem;
     }
-    .prompt-chip::before { content: '"'; color: var(--orange); font-weight: 700; }
-    .prompt-chip::after  { content: '"'; color: var(--orange); font-weight: 700; }
 
     /* ── Setup ── */
     .setup-section {
@@ -385,20 +382,62 @@
     </div>
   </section>
 
-  <!-- What you can ask -->
-  <section class="prompts-section">
+  <!-- Conversations -->
+  <section class="convos-section">
     <div class="container">
-      <div class="section-label">What you can ask</div>
-      <h2 class="section-title">Just ask Claude — it'll pull your data</h2>
-      <div class="prompts-grid">
-        <div class="prompt-chip">How was my training this week?</div>
-        <div class="prompt-chip">Compare my mileage over the last month</div>
-        <div class="prompt-chip">What does my heart rate say about my fitness?</div>
-        <div class="prompt-chip">Am I recovered enough for a hard workout tomorrow?</div>
-        <div class="prompt-chip">What pace should I target for my next race?</div>
-        <div class="prompt-chip">Show me my fastest 5 runs this year</div>
-        <div class="prompt-chip">How is my easy day discipline looking?</div>
-        <div class="prompt-chip">Break down my last workout by lap</div>
+      <div class="section-label">See it in action</div>
+      <h2 class="section-title">Just ask — it pulls your data</h2>
+      <div class="convos-grid">
+
+        <div class="chat">
+          <div class="msg msg-user">
+            <div class="bubble">What pace could I race a marathon right now?</div>
+          </div>
+          <div class="msg msg-claude">
+            <div class="bubble">
+              Based on your 18-mile long run (7:22/mi, HR 148) and 6:48/mi tempo this week, your fitness maps to roughly <strong>3:05–3:10</strong>. Your aerobic base is solid — the main gap is your longest run is still 18 miles.
+            </div>
+          </div>
+        </div>
+
+        <div class="chat">
+          <div class="msg msg-user">
+            <div class="bubble">Are my easy runs actually easy?</div>
+          </div>
+          <div class="msg msg-claude">
+            <div class="bubble">
+              Mostly yes. Easy days average 8:12/mi with HR around 138 — aerobic for your fitness. But <strong>3 of your last 6 easy runs</strong> drifted above 155 bpm in the final mile. Watch the pace when you're tired.
+            </div>
+          </div>
+        </div>
+
+        <div class="chat">
+          <div class="msg msg-user">
+            <div class="bubble">Break down my Tuesday workout</div>
+          </div>
+          <div class="msg msg-claude">
+            <div class="bubble">
+              <strong>8 × 800m — avg 3:04 per rep</strong>
+              <ul>
+                <li>Reps 1–4: 3:07 → 3:05 → 3:04 → 3:02 ✓</li>
+                <li>Reps 5–8: 3:04 → 3:02 → 3:01 → 2:58</li>
+              </ul>
+              Excellent consistency. Negative-split execution with a strong close — one of your better workouts this cycle.
+            </div>
+          </div>
+        </div>
+
+        <div class="chat">
+          <div class="msg msg-user">
+            <div class="bubble">How does this week compare to last month?</div>
+          </div>
+          <div class="msg msg-claude">
+            <div class="bubble">
+              You're up <strong>22% in weekly mileage</strong> vs. your February average (42 mi vs. 34 mi). Intensity has also risen — 3 quality sessions this week vs. 1–2 in Feb. Good progression, but watch for signs of accumulated fatigue.
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </section>
@@ -421,7 +460,7 @@
           <p>This connector uses your own Strava API credentials, so your data stays under your control and is never shared with other users.</p>
           <div class="substep">
             <strong>Go to <a href="https://www.strava.com/settings/api" target="_blank">strava.com/settings/api</a> and create a new application.</strong>
-            The only field that actually matters is <strong>Authorization Callback Domain</strong>. Everything else is for Strava's records and can be anything.
+            The only field that actually matters is <strong>Authorization Callback Domain</strong> — everything else is for Strava's records and can be anything.
           </div>
           <div class="field-table" style="margin-top:12px">
             <div class="field-row">
@@ -464,7 +503,7 @@
               <div class="field-val"><code>https://187-77-203-66.sslip.io/mcp</code></div>
             </div>
           </div>
-          <p class="step-footnote">A "Connect Strava to Claude" popup should appear automatically after saving.</p>
+          <p class="step-footnote">After saving, click <strong>Connect</strong> next to the connector to begin setup. If no button appeared, go to Settings → Connectors, click the connector, then click <strong>Reconnect</strong>.</p>
         </div>
       </div>
 

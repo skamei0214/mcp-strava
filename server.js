@@ -171,6 +171,19 @@ function createMCPServer(athleteId) {
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// CORS — Claude.ai makes cross-origin requests from the browser.
+// Without these headers the OPTIONS preflight is blocked, the actual GET /mcp
+// never reaches the server, and Claude.ai never sees the 401 that triggers OAuth.
+app.use((req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, mcp-session-id');
+  res.set('Access-Control-Expose-Headers', 'WWW-Authenticate');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(express.static(join(__dirname, 'public')));
 
 // ── OAuth discovery ───────────────────────────────────────────────────────────
