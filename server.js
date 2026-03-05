@@ -462,6 +462,14 @@ app.post('/oauth/token', (req, res) => {
 
 // ── MCP endpoint ──────────────────────────────────────────────────────────────
 
+// GET /mcp — Claude.ai tests the URL with a GET during the "Add connector" step.
+// Returning 401 with OAuth discovery headers here triggers the OAuth flow immediately,
+// so the user doesn't need to disconnect/reconnect after adding the connector.
+app.get('/mcp', (req, res) => {
+  res.set('WWW-Authenticate', `Bearer realm="${BASE_URL}", resource_metadata="${BASE_URL}/.well-known/oauth-protected-resource"`);
+  res.status(401).json({ error: 'unauthorized' });
+});
+
 app.post('/mcp', requireAuth, async (req, res) => {
   const server = createMCPServer(req.athleteId);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

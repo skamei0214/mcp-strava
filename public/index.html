@@ -2,44 +2,502 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Athlete Coach for Claude</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Strava for Claude — Your AI training coach</title>
+  <meta name="description" content="Connect your Strava to Claude and get real coaching insights from your own training data.">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #f0f0f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; }
-    .logo { font-size: 2.5rem; margin-bottom: 16px; }
-    h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 12px; text-align: center; }
-    .subtitle { color: #aaa; font-size: 1rem; max-width: 440px; text-align: center; line-height: 1.6; margin-bottom: 40px; }
-    .features { list-style: none; margin-bottom: 48px; display: flex; flex-direction: column; gap: 12px; }
-    .features li { display: flex; align-items: center; gap: 10px; color: #ccc; font-size: 0.95rem; }
-    .features li::before { content: "✓"; color: #FC4C02; font-weight: 700; }
-    .btn {
-      display: inline-block; background: #FC4C02; color: white;
-      padding: 14px 32px; border-radius: 8px; text-decoration: none;
-      font-weight: 600; font-size: 1rem; margin-bottom: 16px;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --orange: #FC4C02;
+      --orange-dark: #e04400;
+      --text: #1a1a1a;
+      --muted: #666;
+      --subtle: #999;
+      --border: #e8e8e8;
+      --surface: #f7f7f7;
+      --white: #ffffff;
     }
-    .btn:hover { background: #e04400; }
-    .privacy { color: #555; font-size: 0.8rem; }
-    .privacy a { color: #777; }
-    .powered { margin-top: 60px; color: #444; font-size: 0.8rem; }
-    .powered a { color: #FC4C02; text-decoration: none; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: var(--text);
+      background: var(--white);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Nav ── */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+    .nav-logo { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 8px; }
+    .nav-logo span { color: var(--orange); }
+    .nav-cta {
+      background: var(--orange); color: white;
+      padding: 8px 18px; border-radius: 8px;
+      font-weight: 600; font-size: 0.875rem;
+      transition: background 0.15s;
+    }
+    .nav-cta:hover { background: var(--orange-dark); }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 72px 24px 64px;
+      max-width: 900px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 56px;
+      align-items: center;
+    }
+    @media (max-width: 680px) {
+      .hero { grid-template-columns: 1fr; gap: 40px; padding: 48px 24px; }
+      nav { padding: 16px 20px; }
+    }
+
+    .hero-eyebrow {
+      display: inline-block;
+      background: #fff3ee;
+      color: var(--orange);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      font-size: clamp(1.75rem, 4vw, 2.4rem);
+      font-weight: 800;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+    .hero h1 em { font-style: normal; color: var(--orange); }
+    .hero-sub {
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      margin-bottom: 28px;
+    }
+    .hero-note { font-size: 0.82rem; color: var(--subtle); margin-top: 12px; }
+
+    .btn-primary {
+      display: inline-block;
+      background: var(--orange);
+      color: white;
+      padding: 13px 24px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      transition: background 0.15s;
+    }
+    .btn-primary:hover { background: var(--orange-dark); }
+
+    /* ── Conversation mockup ── */
+    .chat {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      font-size: 0.88rem;
+    }
+    .chat-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .chat-avatar {
+      width: 28px; height: 28px;
+      background: var(--orange);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 0.75rem; font-weight: 700;
+    }
+    .chat-name { font-weight: 600; font-size: 0.82rem; color: var(--muted); }
+
+    .msg { margin-bottom: 14px; }
+    .msg:last-child { margin-bottom: 0; }
+
+    .msg-user { display: flex; justify-content: flex-end; }
+    .msg-user .bubble {
+      background: var(--orange);
+      color: white;
+      padding: 10px 14px;
+      border-radius: 14px 14px 4px 14px;
+      max-width: 82%;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+
+    .msg-claude .bubble {
+      background: white;
+      border: 1px solid var(--border);
+      padding: 12px 14px;
+      border-radius: 4px 14px 14px 14px;
+      font-size: 0.855rem;
+      line-height: 1.6;
+    }
+    .msg-claude .bubble strong { font-weight: 600; }
+    .msg-claude .bubble ul { padding-left: 16px; margin: 6px 0; }
+    .msg-claude .bubble li { margin-bottom: 4px; }
+    .msg-claude .bubble .flag {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: #fff8f0;
+      border-left: 3px solid var(--orange);
+      border-radius: 0 6px 6px 0;
+      font-size: 0.82rem;
+      color: #7a3800;
+    }
+
+    /* ── Prompts ── */
+    .prompts-section {
+      background: var(--surface);
+      padding: 64px 24px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    .section-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--orange);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(1.3rem, 3vw, 1.8rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 32px;
+    }
+    .prompts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .prompt-chip {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 0.88rem;
+      line-height: 1.4;
+    }
+    .prompt-chip::before { content: '"'; color: var(--orange); font-weight: 700; }
+    .prompt-chip::after  { content: '"'; color: var(--orange); font-weight: 700; }
+
+    /* ── Setup ── */
+    .setup-section {
+      padding: 72px 24px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .setup-note {
+      display: inline-flex;
+      align-items: flex-start;
+      gap: 8px;
+      background: #f0f7ff;
+      border: 1px solid #c8dff8;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.85rem;
+      color: #2a5ea8;
+      margin-bottom: 40px;
+      line-height: 1.5;
+    }
+
+    .steps { display: flex; flex-direction: column; }
+    .step {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 20px;
+      padding-bottom: 40px;
+      position: relative;
+    }
+    .step:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      left: 23px; top: 48px; bottom: 0;
+      width: 2px;
+      background: var(--border);
+    }
+    .step-num {
+      width: 48px; height: 48px;
+      background: var(--orange);
+      color: white;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 1.1rem;
+      flex-shrink: 0;
+      position: relative; z-index: 1;
+    }
+    .step-content { padding-top: 10px; }
+    .step-content h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
+    .step-content p  { color: var(--muted); font-size: 0.9rem; line-height: 1.65; }
+    .step-content a  { color: var(--orange); font-weight: 600; }
+    .step-content a:hover { text-decoration: underline; }
+
+    .field-table {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 0.855rem;
+      width: 100%;
+    }
+    .field-row {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-bottom: 1px solid var(--border);
+    }
+    .field-row:last-child { border-bottom: none; }
+    .field-name {
+      padding: 10px 14px;
+      background: var(--surface);
+      font-weight: 600;
+      font-size: 0.82rem;
+      border-right: 1px solid var(--border);
+    }
+    .field-val {
+      padding: 10px 14px;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .field-val code {
+      background: #f0f0f0;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.82rem;
+      color: var(--text);
+      user-select: all;
+    }
+    .field-val .required { color: var(--orange); font-weight: 600; font-size: 0.8rem; }
+    @media (max-width: 500px) {
+      .field-row { grid-template-columns: 1fr; }
+      .field-name { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+
+    .substep {
+      margin-top: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 0.875rem;
+      color: var(--muted);
+    }
+    .substep strong { color: var(--text); display: block; margin-bottom: 6px; }
+    .step-footnote { margin-top: 10px; font-size: 0.82rem; color: var(--subtle); }
+
+    /* ── Privacy ── */
+    .privacy-section {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 48px 24px;
+    }
+    .privacy-inner {
+      max-width: 900px; margin: 0 auto;
+      display: flex; gap: 16px; align-items: flex-start;
+    }
+    .privacy-icon { font-size: 1.6rem; flex-shrink: 0; }
+    .privacy-text h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+    .privacy-text p { color: var(--muted); font-size: 0.875rem; line-height: 1.65; }
+    .privacy-text a { color: var(--orange); }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px;
+      text-align: center;
+      color: var(--subtle);
+      font-size: 0.8rem;
+    }
+    footer a { color: var(--subtle); }
+    footer a:hover { color: var(--muted); }
   </style>
 </head>
 <body>
-  <div class="logo">🏃</div>
-  <h1>Athlete Coach for Claude</h1>
-  <p class="subtitle">Connect your Strava training data to Claude and ChatGPT. Get instant coaching insights from your runs, rides, and workouts.</p>
 
-  <ul class="features">
-    <li>Live activity data pulled fresh from Strava</li>
-    <li>Works with Claude.ai, Claude mobile, and ChatGPT</li>
-    <li>Weekly mileage, pace trends, heart rate analysis</li>
-    <li>Ask follow-up questions about your training</li>
-  </ul>
+  <nav>
+    <div class="nav-logo">🏃 Strava <span>for Claude</span></div>
+    <a class="nav-cta" href="#setup">Set up →</a>
+  </nav>
 
-  <a class="btn" href="/oauth/authorize">Connect with Strava</a>
-  <p class="privacy">By connecting, you agree to our <a href="/privacy">Privacy Policy</a></p>
+  <!-- Hero -->
+  <section class="hero">
+    <div>
+      <div class="hero-eyebrow">MCP Connector</div>
+      <h1>Your <em>AI training coach,</em> powered by your Strava data</h1>
+      <p class="hero-sub">Connect Strava to Claude and ask anything about your training — weekly mileage, pace trends, heart rate, race readiness, and more.</p>
+      <a class="btn-primary" href="#setup">Get set up in 5 minutes →</a>
+      <p class="hero-note">📱 Set up once on web. Works on the Claude mobile app too.</p>
+    </div>
 
-  <p class="powered">Powered by <a href="https://www.strava.com">Strava</a></p>
+    <div class="chat">
+      <div class="chat-header">
+        <div class="chat-avatar">C</div>
+        <span class="chat-name">Claude · Strava connected</span>
+      </div>
+
+      <div class="msg msg-user">
+        <div class="bubble">How was my training this week?</div>
+      </div>
+      <div class="msg msg-claude">
+        <div class="bubble">
+          <strong>Solid week — 42 miles across 6 runs.</strong>
+          <ul>
+            <li>Wednesday tempo: 6:48/mi avg — best effort in 3 weeks</li>
+            <li>Saturday long run: 18 mi at 7:22/mi, HR avg 148 bpm</li>
+            <li>Easy days averaged 8:10/mi — good discipline</li>
+          </ul>
+          <div class="flag">⚠️ You averaged 6h20m sleep on hard days. Worth monitoring heading into your peak block.</div>
+        </div>
+      </div>
+
+      <div class="msg msg-user">
+        <div class="bubble">Am I on track for my marathon?</div>
+      </div>
+      <div class="msg msg-claude">
+        <div class="bubble">
+          Based on your last 6 weeks, your long runs and tempo efforts put you on track for a <strong>3:05–3:10 finish</strong>. Main risk: your weekly mileage dipped 18% two weeks ago — keep it consistent through your taper.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- What you can ask -->
+  <section class="prompts-section">
+    <div class="container">
+      <div class="section-label">What you can ask</div>
+      <h2 class="section-title">Just ask Claude — it'll pull your data</h2>
+      <div class="prompts-grid">
+        <div class="prompt-chip">How was my training this week?</div>
+        <div class="prompt-chip">Compare my mileage over the last month</div>
+        <div class="prompt-chip">What does my heart rate say about my fitness?</div>
+        <div class="prompt-chip">Am I recovered enough for a hard workout tomorrow?</div>
+        <div class="prompt-chip">What pace should I target for my next race?</div>
+        <div class="prompt-chip">Show me my fastest 5 runs this year</div>
+        <div class="prompt-chip">How is my easy day discipline looking?</div>
+        <div class="prompt-chip">Break down my last workout by lap</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Setup guide -->
+  <section class="setup-section" id="setup">
+    <div class="section-label">Setup guide</div>
+    <h2 class="section-title">Connect in 3 steps</h2>
+
+    <div class="setup-note">
+      ℹ️&nbsp; <span>Initial setup must be done on <strong>claude.ai</strong> in a desktop browser. Once connected, Claude can access your Strava from any device — including the mobile app.</span>
+    </div>
+
+    <div class="steps">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>Create your own Strava API app</h3>
+          <p>This connector uses your own Strava API credentials, so your data stays under your control and is never shared with other users.</p>
+          <div class="substep">
+            <strong>Go to <a href="https://www.strava.com/settings/api" target="_blank">strava.com/settings/api</a> and create a new application.</strong>
+            The only field that actually matters is <strong>Authorization Callback Domain</strong>. Everything else is for Strava's records and can be anything.
+          </div>
+          <div class="field-table" style="margin-top:12px">
+            <div class="field-row">
+              <div class="field-name">Application Name</div>
+              <div class="field-val">Strava Connector <em style="color:var(--subtle)">(your choice)</em></div>
+            </div>
+            <div class="field-row">
+              <div class="field-name">Category</div>
+              <div class="field-val">Training <em style="color:var(--subtle)">(your choice)</em></div>
+            </div>
+            <div class="field-row">
+              <div class="field-name">Website</div>
+              <div class="field-val"><code>http://localhost</code></div>
+            </div>
+            <div class="field-row">
+              <div class="field-name" style="color:var(--orange)">Authorization Callback Domain ★</div>
+              <div class="field-val"><code>187-77-203-66.sslip.io</code> &nbsp;<span class="required">← copy this exactly</span></div>
+            </div>
+            <div class="field-row">
+              <div class="field-name">Club / Description</div>
+              <div class="field-val"><em style="color:var(--subtle)">Leave empty</em></div>
+            </div>
+          </div>
+          <p class="step-footnote">After creating the app, keep this tab open — you'll need your <strong>Client ID</strong> and <strong>Client Secret</strong> in Step 3.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>Add the connector to Claude</h3>
+          <p>On <a href="https://claude.ai" target="_blank">claude.ai</a>, go to <strong>Profile → Settings → Connectors → Add custom connector</strong> and fill in:</p>
+          <div class="field-table">
+            <div class="field-row">
+              <div class="field-name">Name</div>
+              <div class="field-val">Strava Connector <em style="color:var(--subtle)">(or anything you like)</em></div>
+            </div>
+            <div class="field-row">
+              <div class="field-name">URL</div>
+              <div class="field-val"><code>https://187-77-203-66.sslip.io/mcp</code></div>
+            </div>
+          </div>
+          <p class="step-footnote">A "Connect Strava to Claude" popup should appear automatically after saving.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Connect your Strava account</h3>
+          <p>In the popup, paste your <strong>Client ID</strong> and <strong>Client Secret</strong> from Step 1, then click Connect.</p>
+          <div class="substep">
+            <strong>You'll be taken to Strava to authorize, then shown a confirmation screen.</strong>
+            Confirm it's your account — and you're done. Claude can now access your Strava data from any device.
+          </div>
+          <p class="step-footnote">If the popup didn't appear in Step 2, go to Settings → Connectors, click the connector, then click <strong>Reconnect</strong> to trigger it.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Privacy -->
+  <section class="privacy-section">
+    <div class="privacy-inner">
+      <div class="privacy-icon">🔒</div>
+      <div class="privacy-text">
+        <h3>Your data stays yours</h3>
+        <p>This connector uses your own Strava API credentials — not a shared app. Your activities are fetched directly from Strava's API and passed to Claude. Nothing is stored beyond what's needed to keep your account connected. <a href="/privacy">Privacy policy →</a></p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <a href="/privacy">Privacy Policy</a> &middot; Built for Claude using the Model Context Protocol
+  </footer>
+
 </body>
 </html>
