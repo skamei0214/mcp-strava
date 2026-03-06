@@ -94,7 +94,14 @@ function formatActivity(a, laps) {
       const lapMin  = (lap.moving_time / 60).toFixed(1);
       const lapElev = Math.round((lap.total_elevation_gain || 0) * 3.28084);
       const hrStr   = lap.average_heartrate ? ` | HR: ${lap.average_heartrate} bpm` : '';
-      lines.push(`  Lap ${i + 1}: ${lapDist} mi | ${lapMin} min | ${lapElev} ft${hrStr}`);
+      let paceStr = '';
+      if (lap.distance > 0) {
+        const lapPaceSec = lap.moving_time / (lap.distance / 1609.34);
+        const lapPaceMin = Math.floor(lapPaceSec / 60);
+        const lapPaceSec2 = Math.floor(lapPaceSec % 60);
+        paceStr = ` | ${lapPaceMin}:${String(lapPaceSec2).padStart(2, '0')}/mi`;
+      }
+      lines.push(`  Lap ${i + 1}: ${lapDist} mi | ${lapMin} min${paceStr} | ${lapElev} ft${hrStr}`);
     });
   }
   return lines.join('\n');
@@ -187,19 +194,42 @@ async function fetchStravaActivities(athleteId) {
   // ── First sync ───────────────────────────────────────────────────────────────
   if (!user.last_sync_at) {
     const since = nowTs - 730 * 24 * 3600;  // 2 years back
+    // Enrich only the past 90 days with detail+laps to stay within Strava's
+    // 200 req/15 min rate limit. ~90 runs × 2 calls = ~180 calls, safely under cap.
+    const enrichCutoffTs   = nowTs - 90 * 24 * 3600;
+    const enrichCutoffDate = new Date(enrichCutoffTs * 1000).toISOString().slice(0, 10);
+
     const activities = await fetchAllActivitiesSince(token, since);
+
+    const recentActivities = activities.filter(a => a.start_date_local.slice(0, 10) >= enrichCutoffDate);
+    const enrichedRecent   = recentActivities.length > 0
+      ? await enrichActivities(token, recentActivities)
+      : [];
+    const enrichedMap = new Map(enrichedRecent.map(e => [e.activity.id, e]));
 
     const sinceDate = new Date(since * 1000).toISOString().slice(0, 10);
     const toDate    = new Date(nowTs * 1000).toISOString().slice(0, 10);
+    const olderCount = activities.length - recentActivities.length;
     const lines = [
       `INITIAL SYNC — Fetched ${activities.length} activities from ${sinceDate} to ${toDate}.`,
       `This was the first sync; it took longer than usual because 2 years of history was retrieved from Strava.`,
+      ``,
+      `DATA COVERAGE:`,
+      `• ${recentActivities.length} recent activities (${enrichCutoffDate} → ${toDate}): full data — descriptions, lap splits with pace, and heart rate.`,
+      `• ${olderCount} older activities (${sinceDate} → ${enrichCutoffDate}): basic data only — distance, pace, and heart rate. Descriptions and lap splits were not fetched to stay within Strava's API rate limits.`,
+      ``,
+      `IMPORTANT — if the user asks for lap splits or the description of an activity before ${enrichCutoffDate}, tell them:`,
+      `"Detailed lap data for activities before ${enrichCutoffDate} wasn't fetched during the initial sync to stay within Strava's API limits. To see full splits for that run, open it directly on strava.com."`,
+      ``,
       `Commit every activity below to your memory so training history is available in future conversations.`,
-      `If the user asks about activities before ${sinceDate}, explain that only the past 2 years are available in this sync.`,
+      `If the user asks about activities before ${sinceDate}, explain that only the past 2 years are synced.`,
       `Do not call this tool again in this conversation — all data through ${toDate} is now included.\n`,
     ];
     for (const a of activities) {
-      lines.push(formatActivity(a, []));  // list API only — no detail/laps calls to stay within rate limits
+      const enriched = enrichedMap.get(a.id);
+      const laps = enriched ? enriched.laps : [];
+      if (enriched) a.description = enriched.activity.description;
+      lines.push(formatActivity(a, laps));
       upsertActivitySync(athleteId, a.id, activityHash(a), a.start_date_local.slice(0, 10));
     }
     setLastSyncAt(athleteId, nowTs);
