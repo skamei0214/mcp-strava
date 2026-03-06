@@ -56,6 +56,12 @@ async function stravaGet(token, path) {
   const res = await fetch(`https://www.strava.com/api/v3${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (res.status === 429) {
+    throw Object.assign(new Error('Strava rate limit reached'), { code: 'RATE_LIMIT' });
+  }
+  if (res.status === 401) {
+    throw Object.assign(new Error('Strava token invalid or revoked'), { code: 'AUTH_ERROR' });
+  }
   return res.json();
 }
 
@@ -97,6 +103,51 @@ function formatActivity(a, laps) {
 // Hash the fields available from the list API — used to detect edits
 function activityHash(a) {
   return [a.sport_type, a.distance, a.moving_time, a.elapsed_time, a.start_date_local, a.name].join('|');
+}
+
+// Convert a caught error into a user-facing message Claude can relay directly
+function buildErrorMessage(err) {
+  const code = err.code;
+  const msg  = err.message || String(err);
+
+  if (code === 'RATE_LIMIT') {
+    return [
+      '⚠️ STRAVA RATE LIMIT REACHED',
+      '',
+      'Strava allows 200 API requests per 15 minutes. The limit was hit while fetching activity history.',
+      '',
+      'Tell the user: "Strava\'s rate limit was reached — this sometimes happens on the first sync when fetching 2 years of history. Wait about 15 minutes and start a new conversation to try again. Any data already saved to memory is still valid."',
+    ].join('\n');
+  }
+
+  if (code === 'AUTH_ERROR' || msg.includes('Token refresh failed')) {
+    return [
+      '⚠️ STRAVA AUTH ERROR',
+      '',
+      'The Strava access token is invalid or has been revoked.',
+      '',
+      'Tell the user: "Your Strava connection has expired or been revoked. Open Claude\'s settings, disconnect the \'Strava for Claude\' connector, then reconnect it. The setup only takes about 2 minutes."',
+    ].join('\n');
+  }
+
+  if (msg.includes('not connected')) {
+    return [
+      '⚠️ STRAVA NOT CONNECTED',
+      '',
+      'No Strava account is linked to this session.',
+      '',
+      `Tell the user: "Your Strava account isn't connected yet. Visit ${BASE_URL} and follow the setup instructions to link your Strava account."`,
+    ].join('\n');
+  }
+
+  // Generic fallback
+  return [
+    '⚠️ UNEXPECTED ERROR',
+    '',
+    `Error details: ${msg}`,
+    '',
+    'Tell the user what went wrong and suggest they try again. If the problem persists, they may need to disconnect and reconnect the Strava connector from Claude\'s settings.',
+  ].join('\n');
 }
 
 // Fetch every activity whose start_date is after `afterTs` (Unix), paginating as needed
@@ -141,8 +192,10 @@ async function fetchStravaActivities(athleteId) {
     const sinceDate = new Date(since * 1000).toISOString().slice(0, 10);
     const toDate    = new Date(nowTs * 1000).toISOString().slice(0, 10);
     const lines = [
-      `INITIAL SYNC — ${activities.length} activities from ${sinceDate} to ${toDate}.`,
-      `Commit every activity below to your memory so your training history is available in future conversations.`,
+      `INITIAL SYNC — Fetched ${activities.length} activities from ${sinceDate} to ${toDate}.`,
+      `This was the first sync; it took longer than usual because 2 years of history was retrieved from Strava.`,
+      `Commit every activity below to your memory so training history is available in future conversations.`,
+      `If the user asks about activities before ${sinceDate}, explain that only the past 2 years are available in this sync.`,
       `Do not call this tool again in this conversation — all data through ${toDate} is now included.\n`,
     ];
     for (const a of activities) {
@@ -258,9 +311,11 @@ function createMCPServer(athleteId) {
       name: 'get_strava_activities',
       description: [
         'Sync Strava training activities.',
-        'First call returns all activities from the past year — commit every activity to memory so your training history is available across conversations.',
-        'Subsequent calls return only changes since the last sync (new, edited, or removed activities) — update memory accordingly.',
-        'Always call this at the start of a conversation to load fresh data.',
+        'Before calling this tool, tell the user you are loading their Strava training history.',
+        'The first call fetches 2 years of activity history from Strava and may take 15–30 seconds — let the user know to expect a brief wait.',
+        'Subsequent calls are fast and only return changes (new, edited, or removed activities).',
+        'Always call this at the start of a conversation to load fresh data before any analysis.',
+        'If this tool returns a message starting with ⚠️, relay the full message to the user — it explains what went wrong and exactly what they should do.',
       ].join(' '),
       inputSchema: { type: 'object', properties: {} },
     }],
@@ -268,8 +323,16 @@ function createMCPServer(athleteId) {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (request.params.name !== 'get_strava_activities') throw new Error(`Unknown tool: ${request.params.name}`);
-    const data = await fetchStravaActivities(athleteId);
-    return { content: [{ type: 'text', text: data }] };
+    try {
+      const data = await fetchStravaActivities(athleteId);
+      return { content: [{ type: 'text', text: data }] };
+    } catch (err) {
+      console.error('fetchStravaActivities error:', err);
+      return {
+        content: [{ type: 'text', text: buildErrorMessage(err) }],
+        isError: true,
+      };
+    }
   });
 
   return server;
