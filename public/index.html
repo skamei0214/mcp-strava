@@ -43,7 +43,7 @@
       z-index: 10;
     }
     .nav-logo { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 8px; }
-    .nav-logo span { color: var(--orange); }
+    .nav-logo span { color: var(--text); }
     .nav-cta {
       background: var(--orange); color: white;
       padding: 8px 18px; border-radius: 8px;
@@ -54,19 +54,20 @@
 
     /* ── Hero ── */
     .hero {
-      padding: 72px 24px 64px;
-      max-width: 680px;
+      padding: 96px 24px 80px;
+      max-width: 900px;
       margin: 0 auto;
     }
+    .hero > div { max-width: 580px; }
     @media (max-width: 680px) {
-      .hero { padding: 48px 24px; }
+      .hero { padding: 56px 24px; }
       nav { padding: 16px 20px; }
     }
 
     .hero-eyebrow {
       display: inline-block;
-      background: #fff3ee;
-      color: var(--orange);
+      background: #f0f0f0;
+      color: var(--muted);
       font-size: 0.78rem;
       font-weight: 700;
       letter-spacing: 0.06em;
@@ -82,7 +83,7 @@
       letter-spacing: -0.02em;
       margin-bottom: 16px;
     }
-    .hero h1 em { font-style: normal; color: var(--orange); }
+    .hero h1 em { font-style: normal; color: var(--text); }
     .hero-sub {
       color: var(--muted);
       font-size: 1.05rem;
@@ -121,7 +122,7 @@
     }
     .chat-avatar {
       width: 28px; height: 28px;
-      background: var(--orange);
+      background: var(--text);
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       color: white; font-size: 0.75rem; font-weight: 700;
@@ -157,7 +158,7 @@
       margin-top: 10px;
       padding: 8px 10px;
       background: #fff8f0;
-      border-left: 3px solid var(--orange);
+      border-left: 3px solid var(--border);
       border-radius: 0 6px 6px 0;
       font-size: 0.82rem;
       color: #7a3800;
@@ -176,7 +177,7 @@
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--orange);
+      color: var(--muted);
       margin-bottom: 12px;
     }
     .section-title {
@@ -235,7 +236,7 @@
     }
     .step-num {
       width: 48px; height: 48px;
-      background: var(--orange);
+      background: var(--text);
       color: white;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
@@ -246,8 +247,8 @@
     .step-content { padding-top: 10px; }
     .step-content h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
     .step-content p  { color: var(--muted); font-size: 0.9rem; line-height: 1.65; }
-    .step-content a  { color: var(--orange); font-weight: 600; }
-    .step-content a:hover { text-decoration: underline; }
+    .step-content a  { color: var(--text); font-weight: 600; text-decoration: underline; }
+    .step-content a:hover { color: var(--muted); }
 
     .field-table {
       margin-top: 12px;
@@ -284,7 +285,7 @@
       color: var(--text);
       user-select: all;
     }
-    .field-val .required { color: var(--orange); font-weight: 600; font-size: 0.8rem; }
+    .field-val .required { color: var(--text); font-weight: 600; font-size: 0.8rem; }
     @media (max-width: 500px) {
       .field-row { grid-template-columns: 1fr; }
       .field-name { border-right: none; border-bottom: 1px solid var(--border); }
@@ -315,7 +316,7 @@
     .privacy-icon { font-size: 1.6rem; flex-shrink: 0; }
     .privacy-text h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
     .privacy-text p { color: var(--muted); font-size: 0.875rem; line-height: 1.65; }
-    .privacy-text a { color: var(--orange); }
+    .privacy-text a { color: var(--text); }
 
     /* ── Footer ── */
     footer {
@@ -442,7 +443,7 @@
               <div class="field-val"><code>http://localhost</code></div>
             </div>
             <div class="field-row">
-              <div class="field-name" style="color:var(--orange)">Authorization Callback Domain ★</div>
+              <div class="field-name" style="font-weight:700">Authorization Callback Domain ★</div>
               <div class="field-val"><code>187-77-203-66.sslip.io</code> &nbsp;<span class="required">← copy this exactly</span></div>
             </div>
             <div class="field-row">
