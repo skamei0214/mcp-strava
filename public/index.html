@@ -55,15 +55,11 @@
     /* ── Hero ── */
     .hero {
       padding: 72px 24px 64px;
-      max-width: 900px;
+      max-width: 680px;
       margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 56px;
-      align-items: center;
     }
     @media (max-width: 680px) {
-      .hero { grid-template-columns: 1fr; gap: 40px; padding: 48px 24px; }
+      .hero { padding: 48px 24px; }
       nav { padding: 16px 20px; }
     }
 
@@ -350,36 +346,6 @@
       <p class="hero-note">📱 Set up once on web. Works on the Claude mobile app too.</p>
     </div>
 
-    <div class="chat">
-      <div class="chat-header">
-        <div class="chat-avatar">C</div>
-        <span class="chat-name">Claude · Strava connected</span>
-      </div>
-
-      <div class="msg msg-user">
-        <div class="bubble">How was my training this week?</div>
-      </div>
-      <div class="msg msg-claude">
-        <div class="bubble">
-          <strong>Solid week — 42 miles across 6 runs.</strong>
-          <ul>
-            <li>Wednesday tempo: 6:48/mi avg — best effort in 3 weeks</li>
-            <li>Saturday long run: 18 mi at 7:22/mi, HR avg 148 bpm</li>
-            <li>Easy days averaged 8:10/mi — good discipline</li>
-          </ul>
-          <div class="flag">⚠️ You averaged 6h20m sleep on hard days. Worth monitoring heading into your peak block.</div>
-        </div>
-      </div>
-
-      <div class="msg msg-user">
-        <div class="bubble">Am I on track for my marathon?</div>
-      </div>
-      <div class="msg msg-claude">
-        <div class="bubble">
-          Based on your last 6 weeks, your long runs and tempo efforts put you on track for a <strong>3:05–3:10 finish</strong>. Main risk: your weekly mileage dipped 18% two weeks ago — keep it consistent through your taper.
-        </div>
-      </div>
-    </div>
   </section>
 
   <!-- Conversations -->
@@ -520,17 +486,6 @@
         </div>
       </div>
 
-    </div>
-  </section>
-
-  <!-- Privacy -->
-  <section class="privacy-section">
-    <div class="privacy-inner">
-      <div class="privacy-icon">🔒</div>
-      <div class="privacy-text">
-        <h3>Your data stays yours</h3>
-        <p>This connector uses your own Strava API credentials — not a shared app. Your activities are fetched directly from Strava's API and passed to Claude. Nothing is stored beyond what's needed to keep your account connected. <a href="/privacy">Privacy policy →</a></p>
-      </div>
     </div>
   </section>
 
