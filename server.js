@@ -135,12 +135,15 @@ async function fetchStravaActivities(athleteId) {
 
   // ── First sync ───────────────────────────────────────────────────────────────
   if (!user.last_sync_at) {
-    const since = nowTs - 365 * 24 * 3600;
+    const since = nowTs - 730 * 24 * 3600;  // 2 years back
     const activities = await fetchAllActivitiesSince(token, since);
 
+    const sinceDate = new Date(since * 1000).toISOString().slice(0, 10);
+    const toDate    = new Date(nowTs * 1000).toISOString().slice(0, 10);
     const lines = [
-      `INITIAL SYNC — ${activities.length} activities from the past year.`,
-      `Commit every activity below to your memory so your training history is available in future conversations.\n`,
+      `INITIAL SYNC — ${activities.length} activities from ${sinceDate} to ${toDate}.`,
+      `Commit every activity below to your memory so your training history is available in future conversations.`,
+      `Do not call this tool again in this conversation — all data through ${toDate} is now included.\n`,
     ];
     for (const a of activities) {
       lines.push(formatActivity(a, []));  // list API only — no detail/laps calls to stay within rate limits
@@ -172,9 +175,16 @@ async function fetchStravaActivities(athleteId) {
 
   const addedRaw = newRaw.filter(a => !storedMap.has(a.id));
 
+  const syncedDate = new Date(user.last_sync_at * 1000).toISOString().slice(0, 10);
+  const oldest = stored.reduce((min, s) => s.start_date < min ? s.start_date : min, stored[0]?.start_date ?? '');
+
   if (addedRaw.length === 0 && editedRaw.length === 0 && removed.length === 0) {
     setLastSyncAt(athleteId, nowTs);
-    return 'NO CHANGES — No new, edited, or removed activities since last sync. Your memory is up to date.';
+    return [
+      `NO CHANGES — No new, edited, or removed activities since last sync (${syncedDate}).`,
+      `Your memory is up to date. Data in memory covers ${oldest} to ${syncedDate}.`,
+      `Do not call this tool again in this conversation.`,
+    ].join('\n');
   }
 
   const lines = ['ACTIVITY DELTA — Update your memory with the following changes:\n'];
@@ -206,6 +216,10 @@ async function fetchStravaActivities(athleteId) {
   }
 
   setLastSyncAt(athleteId, nowTs);
+  const updatedStored = getStoredActivities(athleteId);
+  const updatedOldest = updatedStored.reduce((min, s) => s.start_date < min ? s.start_date : min, updatedStored[0]?.start_date ?? '');
+  const todayDate = new Date(nowTs * 1000).toISOString().slice(0, 10);
+  lines.push(`\nMemory now covers ${updatedOldest} to ${todayDate}. Do not call this tool again in this conversation.`);
   return lines.join('\n');
 }
 
