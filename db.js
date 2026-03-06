@@ -63,12 +63,21 @@ db.exec(`
     expires_at       INTEGER NOT NULL,
     created_at       INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS activity_sync (
+    athlete_id  TEXT    NOT NULL,
+    activity_id INTEGER NOT NULL,
+    data_hash   TEXT    NOT NULL,
+    start_date  TEXT    NOT NULL,
+    PRIMARY KEY (athlete_id, activity_id)
+  );
 `);
 
 // Migrate existing rows (no-op on fresh DBs)
 for (const col of ['strava_client_id', 'strava_client_secret']) {
   try { db.exec(`ALTER TABLE strava_users ADD COLUMN ${col} TEXT`); } catch { /* already exists */ }
 }
+try { db.exec('ALTER TABLE strava_users ADD COLUMN last_sync_at INTEGER DEFAULT 0;'); } catch { /* already exists */ }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -192,4 +201,23 @@ export function createAccessToken({ clientId, athleteId }) {
 export function getAthleteIdFromToken(t) {
   const row = db.prepare('SELECT athlete_id FROM access_tokens WHERE token = ?').get(t);
   return row?.athlete_id ?? null;
+}
+
+// ── Activity sync ──────────────────────────────────────────────────────────────
+
+export function getStoredActivities(athleteId) {
+  return db.prepare('SELECT activity_id, data_hash, start_date FROM activity_sync WHERE athlete_id = ?').all(athleteId);
+}
+
+export function upsertActivitySync(athleteId, activityId, dataHash, startDate) {
+  db.prepare('INSERT OR REPLACE INTO activity_sync (athlete_id, activity_id, data_hash, start_date) VALUES (?, ?, ?, ?)')
+    .run(athleteId, activityId, dataHash, startDate);
+}
+
+export function deleteActivitySync(athleteId, activityId) {
+  db.prepare('DELETE FROM activity_sync WHERE athlete_id = ? AND activity_id = ?').run(athleteId, activityId);
+}
+
+export function setLastSyncAt(athleteId, timestamp) {
+  db.prepare('UPDATE strava_users SET last_sync_at = ? WHERE athlete_id = ?').run(timestamp, athleteId);
 }

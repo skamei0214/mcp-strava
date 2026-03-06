@@ -12,6 +12,7 @@ import {
   createAccessToken, getAthleteIdFromToken,
   createPendingSetup, getPendingSetup, deletePendingSetup,
   createPendingConfirmation, getPendingConfirmation, deletePendingConfirmation,
+  getStoredActivities, upsertActivitySync, deleteActivitySync, setLastSyncAt,
 } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -93,20 +94,118 @@ function formatActivity(a, laps) {
   return lines.join('\n');
 }
 
-async function fetchStravaActivities(athleteId, num = 20) {
-  const user = getStravaUser(athleteId);
-  if (!user) throw new Error('Strava account not connected');
-  const token = await refreshStravaTokenIfNeeded(user);
-  const activities = await stravaGet(token, `/athlete/activities?per_page=${num}`);
-  const lines = [`STRAVA ACTIVITIES — Last ${activities.length} activities\n`];
+// Hash the fields available from the list API — used to detect edits
+function activityHash(a) {
+  return [a.sport_type, a.distance, a.moving_time, a.elapsed_time, a.start_date_local, a.name].join('|');
+}
+
+// Fetch every activity whose start_date is after `afterTs` (Unix), paginating as needed
+async function fetchAllActivitiesSince(token, afterTs) {
+  const all = [];
+  let page = 1;
+  while (true) {
+    const batch = await stravaGet(token, `/athlete/activities?after=${afterTs}&per_page=100&page=${page}`);
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    all.push(...batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+  return all;
+}
+
+// Fetch description + laps for a small batch of activities (used on incremental sync only)
+async function enrichActivities(token, activities) {
+  const enriched = [];
   for (const a of activities) {
     const [detail, laps] = await Promise.all([
       stravaGet(token, `/activities/${a.id}`),
       stravaGet(token, `/activities/${a.id}/laps`),
     ]);
     a.description = detail.description;
-    lines.push(formatActivity(a, laps));
+    enriched.push({ activity: a, laps });
   }
+  return enriched;
+}
+
+async function fetchStravaActivities(athleteId) {
+  const user = getStravaUser(athleteId);
+  if (!user) throw new Error('Strava account not connected');
+  const token = await refreshStravaTokenIfNeeded(user);
+  const nowTs = Math.floor(Date.now() / 1000);
+
+  // ── First sync ───────────────────────────────────────────────────────────────
+  if (!user.last_sync_at) {
+    const since = nowTs - 365 * 24 * 3600;
+    const activities = await fetchAllActivitiesSince(token, since);
+
+    const lines = [
+      `INITIAL SYNC — ${activities.length} activities from the past year.`,
+      `Commit every activity below to your memory so your training history is available in future conversations.\n`,
+    ];
+    for (const a of activities) {
+      lines.push(formatActivity(a, []));  // list API only — no detail/laps calls to stay within rate limits
+      upsertActivitySync(athleteId, a.id, activityHash(a), a.start_date_local.slice(0, 10));
+    }
+    setLastSyncAt(athleteId, nowTs);
+    return lines.join('\n');
+  }
+
+  // ── Incremental sync ─────────────────────────────────────────────────────────
+  // New: activities whose start_date is after the last sync timestamp
+  const newRaw = await fetchAllActivitiesSince(token, user.last_sync_at);
+
+  // Edits + removals: re-fetch the past 60 days and compare against stored state
+  const windowTs = nowTs - 60 * 24 * 3600;
+  const recentRaw = await fetchAllActivitiesSince(token, windowTs);
+  const recentIds = new Set(recentRaw.map(a => a.id));
+
+  const stored = getStoredActivities(athleteId);
+  const storedMap = new Map(stored.map(s => [s.activity_id, s]));
+
+  const editedRaw = recentRaw.filter(a => {
+    const s = storedMap.get(a.id);
+    return s && s.data_hash !== activityHash(a);
+  });
+
+  const windowDate = new Date(windowTs * 1000).toISOString().slice(0, 10);
+  const removed = stored.filter(s => s.start_date >= windowDate && !recentIds.has(s.activity_id));
+
+  const addedRaw = newRaw.filter(a => !storedMap.has(a.id));
+
+  if (addedRaw.length === 0 && editedRaw.length === 0 && removed.length === 0) {
+    setLastSyncAt(athleteId, nowTs);
+    return 'NO CHANGES — No new, edited, or removed activities since last sync. Your memory is up to date.';
+  }
+
+  const lines = ['ACTIVITY DELTA — Update your memory with the following changes:\n'];
+
+  if (addedRaw.length) {
+    const enriched = await enrichActivities(token, addedRaw);
+    lines.push(`── NEW (${enriched.length}) — Add to memory:`);
+    for (const { activity, laps } of enriched) {
+      lines.push(formatActivity(activity, laps));
+      upsertActivitySync(athleteId, activity.id, activityHash(activity), activity.start_date_local.slice(0, 10));
+    }
+  }
+
+  if (editedRaw.length) {
+    const enriched = await enrichActivities(token, editedRaw);
+    lines.push(`\n── EDITED (${enriched.length}) — Update in memory:`);
+    for (const { activity, laps } of enriched) {
+      lines.push(formatActivity(activity, laps));
+      upsertActivitySync(athleteId, activity.id, activityHash(activity), activity.start_date_local.slice(0, 10));
+    }
+  }
+
+  if (removed.length) {
+    lines.push(`\n── REMOVED (${removed.length}) — Delete from memory:`);
+    for (const r of removed) {
+      lines.push(`Activity ${r.activity_id} on ${r.start_date}`);
+      deleteActivitySync(athleteId, r.activity_id);
+    }
+  }
+
+  setLastSyncAt(athleteId, nowTs);
   return lines.join('\n');
 }
 
@@ -143,23 +242,19 @@ function createMCPServer(athleteId) {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [{
       name: 'get_strava_activities',
-      description: 'Fetch the latest Strava training activities. Always call this at the start of a conversation to load fresh data before any analysis.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          num_activities: {
-            type: 'number',
-            description: 'Number of recent activities to fetch (default: 20)',
-          },
-        },
-      },
+      description: [
+        'Sync Strava training activities.',
+        'First call returns all activities from the past year — commit every activity to memory so your training history is available across conversations.',
+        'Subsequent calls return only changes since the last sync (new, edited, or removed activities) — update memory accordingly.',
+        'Always call this at the start of a conversation to load fresh data.',
+      ].join(' '),
+      inputSchema: { type: 'object', properties: {} },
     }],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (request.params.name !== 'get_strava_activities') throw new Error(`Unknown tool: ${request.params.name}`);
-    const num = request.params.arguments?.num_activities ?? 20;
-    const data = await fetchStravaActivities(athleteId, num);
+    const data = await fetchStravaActivities(athleteId);
     return { content: [{ type: 'text', text: data }] };
   });
 
